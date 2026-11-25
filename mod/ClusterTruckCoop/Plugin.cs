@@ -304,6 +304,8 @@ namespace ClusterTruckCoop
             mode = Mode.Off;
             foreach (var r in remotes) if (r.puppet != null) r.puppet.Destroy();
             remotes.Clear();
+            late.Clear();
+            Race.Reset();
             foreach (var t in Trucks.list) t.ReleaseToPhysics();
         }
 
@@ -398,8 +400,8 @@ namespace ClusterTruckCoop
 
             if (ready && gm.won && HostHere && here.Count > 0 && here.TrueForAll(r => r.won))
             {
-                var entries = new List<Race.Entry> { new Race.Entry { name = MyName, time = GameManager.mapTime, points = LocalPoints(gm) } };
-                foreach (var r in here) entries.Add(new Race.Entry { name = r.Name, time = r.time, points = r.points });
+                var entries = new List<Race.Entry> { new Race.Entry { player = this, slot = myId, name = MyName, time = GameManager.mapTime, points = LocalPoints(gm) } };
+                foreach (var r in here) entries.Add(new Race.Entry { player = r, slot = r.id, name = r.Name, time = r.time, points = r.points });
                 Race.Finish(epoch, info.currentLevel, entries);
             }
 
@@ -744,10 +746,21 @@ namespace ClusterTruckCoop
             }
         }
 
+        // One-byte UTF-8 length follows type, slot, epoch, flags and nine floats.
+        internal static bool CompleteClientState(byte[] packet, int length)
+        {
+            const int nameOffset = 1 + 1 + 4 + 1 + 9 * 4;
+            const int fixedLength = nameOffset + 1 + Look.Size + 4 + 1;
+            return length >= fixedLength && packet[0] == (byte)'P'
+                && packet[nameOffset] <= 60 && length == fixedLength + packet[nameOffset]
+                && packet[length - 1] <= 1;
+        }
+
         void Handle(byte[] buf, int len, EndPoint from)
         {
             try
             {
+                if (mode == Mode.Host && !CompleteClientState(buf, len)) return;
                 var r = new BinaryReader(new MemoryStream(buf, 0, len));
                 if (mode == Mode.Client) { if (from.Equals(hostEp)) HandleFromHost(r); }
                 else HandleFromClient(r, from);

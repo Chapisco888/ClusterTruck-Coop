@@ -35,7 +35,7 @@ Cada jogador precisa de uma instalação própria do ClusterTruck.
    install.bat
    ```
    ou `powershell -ExecutionPolicy Bypass -File install.ps1 -GameDir "C:\caminho\do\ClusterTruck"`
-3. O instalador guarda o original em `Clustertruck_Data\Managed\Assembly-CSharp.dll.coop-backup`.
+3. O instalador guarda os originais e os hashes em `Clustertruck_Data\Managed\.clustertruck-coop`. Depois de uma atualização do jogo, execute `install.bat -Uninstall` antes de reinstalar. Ficheiros alterados entretanto são preservados. Em instalações antigas, só é possível recuperar a DLL do jogo quando o backup corresponde à versão instalada.
 
 Desinstalar: `install.bat -Uninstall` (restaura o backup e remove as DLLs do mod).
 
