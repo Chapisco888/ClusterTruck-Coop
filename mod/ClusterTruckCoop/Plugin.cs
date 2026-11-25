@@ -261,11 +261,20 @@ namespace ClusterTruckCoop
             return s;
         }
 
+        // Keep the first-spawn asset resident. Finish loading before advertising a
+        // participant: Unity 5 must not race the room's first spawn against an async load.
+        GameObject playerPrefab;
+        void WarmPlayerPrefab()
+        {
+            if (playerPrefab == null) playerPrefab = Resources.Load<GameObject>("player");
+        }
+
         void StartHost()
         {
             Stop();
             try
             {
+                WarmPlayerPrefab();
                 sock = NewSocket(Port());
                 try { sock.SetSocketOption(SocketOptionLevel.Socket, SocketOptionName.Broadcast, true); } catch { }
                 beaconTargets = null;
@@ -286,6 +295,7 @@ namespace ClusterTruckCoop
                 if (!IPAddress.TryParse(uiIp.Trim(), out addr))
                     addr = Array.Find(Dns.GetHostAddresses(uiIp.Trim()), a => a.AddressFamily == AddressFamily.InterNetwork);
                 hostEp = new IPEndPoint(addr, Port());
+                WarmPlayerPrefab();
                 sock = NewSocket(0);
                 mode = Mode.Client;
                 myId = -1;
@@ -300,6 +310,7 @@ namespace ClusterTruckCoop
         {
             if (sock != null) sock.Close();
             sock = null;
+            playerPrefab = null;
             hostEp = null;
             mode = Mode.Off;
             foreach (var r in remotes) if (r.puppet != null) r.puppet.Destroy();
@@ -701,6 +712,7 @@ namespace ClusterTruckCoop
         void SendTrucks()
         {
             var l = Trucks.list;
+            float scale = Time.timeScale; // packet timestamps use real seconds
             for (int start = 0; start < l.Count; start += TrucksPerPacket)
             {
                 int n = Math.Min(TrucksPerPacket, l.Count - start);
@@ -708,7 +720,7 @@ namespace ClusterTruckCoop
                 w.Write(epoch);
                 w.Write(Time.unscaledTime);
                 w.Write((byte)n);
-                for (int i = start; i < start + n; i++) l[i].Write(w);
+                for (int i = start; i < start + n; i++) l[i].Write(w, scale);
                 foreach (var to in remotes) if (to.Fresh) SendTo(to.ep);
             }
         }

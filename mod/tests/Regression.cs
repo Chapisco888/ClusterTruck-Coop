@@ -13,9 +13,34 @@ class Regression
         Console.WriteLine("PASS " + test);
     }
 
+    // Replay a 3.36 m discrepancy from the seven-player log, including a stalled physics frame.
+    static void CheckTruckCorrection(Assembly mod)
+    {
+        var truck = mod.GetType("ClusterTruckCoop.TruckSync", true);
+        var correct = truck.GetMethod("PositionCorrection", BindingFlags.Static | BindingFlags.NonPublic);
+        var vector = correct.GetParameters()[0].ParameterType;
+        var gap = Activator.CreateInstance(vector, 0f, 0f, -3.36f);
+        object[] args = { gap, 1f / 60f, false, false };
+        var z = vector.GetField("z");
+        float delta = (float)z.GetValue(correct.Invoke(null, args));
+        Check(!(bool)args[3] && Math.Abs(delta + 0.2f) < 0.001f, "moving truck catches up by 20 cm in one step");
+        args[1] = 0.4f;
+        delta = (float)z.GetValue(correct.Invoke(null, args));
+        Check(!(bool)args[3] && Math.Abs(delta + 0.6f) < 0.001f, "long frame still limits correction");
+        args[0] = Activator.CreateInstance(vector, 0f, 0f, -18f);
+        args[1] = 1f / 60f;
+        delta = (float)z.GetValue(correct.Invoke(null, args));
+        Check(!(bool)args[3] && Math.Abs(delta + 0.6f) < 0.001f, "badly delayed body recovers faster without teleporting");
+        args[0] = gap;
+        args[2] = true;
+        delta = (float)z.GetValue(correct.Invoke(null, args));
+        Check((bool)args[3] && Math.Abs(delta + 3.36f) < 0.001f, "new body can align to its first host pose");
+    }
+
     static void Main()
     {
         var mod = Assembly.LoadFrom("ClusterTruckCoop.dll");
+        CheckTruckCorrection(mod);
         var plugin = mod.GetType("ClusterTruckCoop.CoopPlugin", true);
         var validate = (Func<byte[], int, bool>)Delegate.CreateDelegate(
             typeof(Func<byte[], int, bool>), plugin.GetMethod("CompleteClientState", BindingFlags.Static | BindingFlags.NonPublic));

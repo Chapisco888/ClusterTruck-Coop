@@ -11,7 +11,7 @@ namespace ClusterTruckCoop
         public int id;
         public car c;
         public Rigidbody a, b;
-        bool has;
+        bool has, placed;
         float ht; // host clock of this sample
         byte flags;
         Vector3 pa, va, wa, pb, vb, wb;
@@ -21,19 +21,19 @@ namespace ClusterTruckCoop
 
         static bool Alive(Rigidbody r) => r != null && r.gameObject.activeInHierarchy;
 
-        public void Write(Buf w)
+        public void Write(Buf w, float scale)
         {
             w.Write(id);
             w.Write((byte)((Alive(a) ? 1 : 0) | (Alive(b) ? 2 : 0)));
-            WriteRb(w, a);
-            WriteRb(w, b);
+            WriteRb(w, a, scale);
+            WriteRb(w, b, scale);
         }
 
-        static void WriteRb(Buf w, Rigidbody r)
+        static void WriteRb(Buf w, Rigidbody r, float scale)
         {
             Vector3 p = Vector3.zero, v = Vector3.zero, av = Vector3.zero;
             Quaternion q = Quaternion.identity;
-            if (r != null) { p = r.position; q = r.rotation; v = r.velocity; av = r.angularVelocity; }
+            if (r != null) { p = r.position; q = r.rotation; v = r.velocity * scale; av = r.angularVelocity * scale; }
             w.Write(p.x); w.Write(p.y); w.Write(p.z);
             w.Write(q.x); w.Write(q.y); w.Write(q.z); w.Write(q.w);
             w.Write(v.x); w.Write(v.y); w.Write(v.z);
@@ -106,8 +106,12 @@ namespace ClusterTruckCoop
         {
             if (!has) return;
             float age = Trucks.Age(ht), dt = Trucks.StepReal;
-            moveA = ApplyRb(a, (flags & 1) != 0, pa + va * age, Turn(ra, wa, age), va, wa, dt);
-            moveB = ApplyRb(b, (flags & 2) != 0, pb + vb * age, Turn(rb, wb, age), vb, wb, dt);
+            // Once extrapolation stops, continuing to integrate velocity would pull
+            // the client away from a stationary target on every missing packet.
+            float advance = age >= Trucks.PredictionLimit ? 0f : Mathf.Min(dt, Trucks.PredictionLimit);
+            moveA = ApplyRb(a, (flags & 1) != 0, pa + va * age, Turn(ra, wa, age), va, wa, dt, advance, !placed);
+            moveB = ApplyRb(b, (flags & 2) != 0, pb + vb * age, Turn(rb, wb, age), vb, wb, dt, advance, !placed);
+            placed = true;
             if (moveA.ok && Time.fixedDeltaTime > 0f) Trucks.jerk = Mathf.Max(Trucks.jerk, ((moveA.p1 - moveA.p0) / Time.fixedDeltaTime - va).magnitude);
         }
 
@@ -117,11 +121,23 @@ namespace ClusterTruckCoop
 
         // Kinematic + MovePosition keeps the trailer and wheel joints stable.
         // (Steering dynamic bodies by velocity/teleport tore those joints apart and produced NaN.)
-        // Each step the truck first moves on by its own velocity, then closes 20% of the gap to the host pose:
-        // a late or jittery packet becomes a gentle drift instead of a jump that throws the player (snap only if way off).
-        const float Blend = 0.2f, SnapDist = 3f;
+        // Each step the truck first moves on by its own velocity, then closes part of the gap at a bounded rate.
+        // Only the first placement can teleport. A level restart registers new truck bodies.
+        const float Blend = 0.2f, SnapDist = 3f, CatchupSpeed = 12f;
 
-        static Move ApplyRb(Rigidbody r, bool hostAlive, Vector3 p, Quaternion q, Vector3 v, Vector3 w, float dt)
+        static Vector3 PositionCorrection(Vector3 gap, float dt, bool firstPlacement, out bool snap)
+        {
+            snap = firstPlacement && gap.sqrMagnitude > SnapDist * SnapDist;
+            if (snap) return gap;
+            // For a badly delayed replica, a single fixed speed can leave it many metres
+            // behind the convoy. Close large errors faster, still bounding each correction.
+            float speed = CatchupSpeed;
+            if (gap.sqrMagnitude > 16f) speed += (gap.magnitude - 4f) * 4f;
+            float limit = Mathf.Min(0.6f, speed * Mathf.Min(dt, 0.05f));
+            return Vector3.ClampMagnitude(gap * Blend, limit);
+        }
+
+        static Move ApplyRb(Rigidbody r, bool hostAlive, Vector3 p, Quaternion q, Vector3 v, Vector3 w, float dt, float advance, bool allowTeleport)
         {
             var m = new Move();
             if (r == null || !r.gameObject.activeInHierarchy) return m;
@@ -132,12 +148,19 @@ namespace ClusterTruckCoop
                 r.gameObject.SetActive(false);
                 return m;
             }
-            Vector3 pred = r.position + v * dt;
-            Quaternion qPred = Turn(r.rotation, w, dt);
-            bool snap = (pred - p).sqrMagnitude > SnapDist * SnapDist;
+            Vector3 pred = r.position + v * advance;
+            Quaternion qPred = Turn(r.rotation, w, advance);
+            Vector3 gap = p - pred;
+            bool snap;
+            Vector3 correction = PositionCorrection(gap, dt, allowTeleport, out snap);
+            if (CoopPlugin.qa)
+            {
+                if (gap.sqrMagnitude > SnapDist * SnapDist) Trucks.largeGaps++;
+                Trucks.maxCorrection = Mathf.Max(Trucks.maxCorrection, correction.magnitude);
+            }
             if (snap && Trucks.snaps++ == 0 && CoopPlugin.qa) Trucks.firstSnap = "pos=" + r.position + " target=" + p + " v=" + v + " dt=" + dt + " ts=" + Time.timeScale + " fdt=" + Time.fixedDeltaTime + " t=" + Time.unscaledTime;
             // a snap must not fling a player standing on it: no carry velocity for that step
-            m = new Move { ok = !snap, p0 = r.position, q0 = r.rotation, p1 = snap ? p : Vector3.Lerp(pred, p, Blend), q1 = snap ? q : Quaternion.Slerp(qPred, q, Blend) };
+            m = new Move { ok = !snap, p0 = r.position, q0 = r.rotation, p1 = pred + correction, q1 = snap ? q : Quaternion.Slerp(qPred, q, Blend) };
             r.MovePosition(m.p1);
             r.MoveRotation(m.q1);
             return m;
@@ -166,12 +189,13 @@ namespace ClusterTruckCoop
         static readonly Dictionary<string, int> seen = new Dictionary<string, int>();
         static int dropped;
         public static float jerk;
-        public static int snaps;
+        public static int snaps, largeGaps;
+        public static float maxCorrection;
         public static string firstSnap = "";
 
         static readonly Dictionary<Rigidbody, TruckSync> byRb = new Dictionary<Rigidbody, TruckSync>();
 
-        public static void Clear() { list.Clear(); byId.Clear(); byRb.Clear(); seen.Clear(); dropped = 0; }
+        public static void Clear() { list.Clear(); byId.Clear(); byRb.Clear(); seen.Clear(); dropped = 0; hasOffset = false; }
 
         // Same id on both machines: hierarchy path (no scene-root index) + how many times that path has spawned.
         public static void Register(car c)
@@ -199,7 +223,8 @@ namespace ClusterTruckCoop
             float s = Time.unscaledTime - hostT;
             if (!hasOffset || s < offset) { offset = s; hasOffset = true; }
         }
-        public static float Age(float hostT) => Mathf.Clamp(Time.unscaledTime - offset - hostT, 0f, 0.25f);
+        public const float PredictionLimit = 0.25f;
+        public static float Age(float hostT) => Mathf.Clamp(Time.unscaledTime - offset - hostT, 0f, PredictionLimit);
         public static float StepReal => Time.fixedDeltaTime / Mathf.Max(Time.timeScale, 0.01f); // real seconds per physics step
 
         public static void ReadInto(BinaryReader r, float hostT)
@@ -254,8 +279,9 @@ namespace ClusterTruckCoop
                 if (e > maxErr) { maxErr = e; worst = s.a != null ? s.a.position + " k=" + s.a.isKinematic : "-"; }
             }
             float j = jerk; jerk = 0f;
-            int sn = snaps; snaps = 0;
-            return string.Format("trucks={0} synced={1} unknownIds={2} maxErr={3:F2} over2m={4} jerk={6:F1} snaps={7} {8} worst={5}", list.Count, with, dropped, maxErr, over2, worst, j, sn, sn > 0 ? firstSnap : "");
+            int sn = snaps, gaps = largeGaps; float correction = maxCorrection;
+            snaps = largeGaps = 0; maxCorrection = 0f;
+            return string.Format("trucks={0} synced={1} unknownIds={2} maxErr={3:F2} over2m={4} jerk={6:F1} snaps={7} {8} worst={5} largeGaps={9} correction={10:F3}", list.Count, with, dropped, maxErr, over2, worst, j, sn, sn > 0 ? firstSnap : "", gaps, correction);
         }
 
         public static string Path(Transform t)
