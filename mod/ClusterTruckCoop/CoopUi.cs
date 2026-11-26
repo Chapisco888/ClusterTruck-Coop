@@ -49,15 +49,45 @@ namespace ClusterTruckCoop
 
         // ---------------- menus: create / join / room ----------------
 
+        Vector2 menuScroll;
+        bool joinTab;
+        GUIStyle menuTitle, menuButton, menuLabel, menuTab, menuField;
+        static Texture2D FlatColor(float shade)
+        {
+            var t = new Texture2D(1, 1);
+            t.SetPixel(0, 0, new Color(shade, shade + 0.015f, shade + 0.04f));
+            t.Apply();
+            return t;
+        }
+        static readonly string[] startTabs = { "CRIAR SALA", "ENTRAR NUMA SALA" };
+
         void DrawMenu()
         {
-            if (mode == Mode.Off && !showPanel)
+            if (!lobbyVisible) return;
+            DrawLobbyNames();
+            if (menuTitle == null)
             {
-                if (GUI.Button(new Rect(Screen.width - 202, 12, 190, 40), "MULTIPLAYER  (F8)", bigButton)) showPanel = true;
-                return;
+                menuTitle = new GUIStyle(title) { font = playFont, fontSize = 30, wordWrap = true };
+                menuButton = new GUIStyle(bigButton) { font = playFont, fontSize = 16 };
+                menuButton.normal.background = FlatColor(0.23f);
+                menuButton.hover.background = menuButton.focused.background = FlatColor(0.34f);
+                menuButton.active.background = FlatColor(0.42f);
+                menuTab = new GUIStyle(menuButton) { fontSize = 14, fixedHeight = 34 };
+                menuTab.normal.background = FlatColor(0.14f);
+                menuTab.onNormal.background = menuTab.onHover.background = menuButton.hover.background;
+                menuField = new GUIStyle(GUI.skin.textField) { fontSize = 17, padding = new RectOffset(8, 8, 4, 4) };
+                menuField.normal.background = menuTab.normal.background;
+                menuField.focused.background = menuButton.normal.background;
+                menuLabel = new GUIStyle(GUI.skin.label) { font = gameFont, fontSize = 18 };
             }
-            if (mode == Mode.Off) { Window(380, 510, "MULTIPLAYER", DrawStart); return; }
-            Window(400, mode == Mode.Host ? 595 : 455, mode == Mode.Host ? "SUA SALA" : "SALA", DrawRoom);
+            float w = ShopWidth;
+            var area = new Rect(Screen.width - w - 12f, 12f, w, Screen.height - 24f);
+            Panel(area);
+            GUILayout.BeginArea(new Rect(area.x + 14, area.y + 10, w - 28, area.height - 20));
+            menuScroll = GUILayout.BeginScrollView(menuScroll);
+            if (mode == Mode.Off) DrawStart(); else DrawRoom();
+            GUILayout.EndScrollView();
+            GUILayout.EndArea();
         }
 
         static Texture2D panelBg;
@@ -75,47 +105,38 @@ namespace ClusterTruckCoop
             GUI.Box(area, "");
         }
 
-        void Window(float w, float h, string name, Action body)
-        {
-            h = Mathf.Min(h, Screen.height - 24f);
-            // right side: the game's own menu is centered/left
-            var area = new Rect(Mathf.Max(12f, Screen.width - w - 12f), 12, w, h);
-            Panel(area);
-            GUILayout.BeginArea(new Rect(area.x + 12, area.y + 8, w - 24, h - 16));
-            GUILayout.Label(name, title);
-            body();
-            GUILayout.EndArea();
-        }
-
         void DrawStart()
         {
-            GUILayout.Label("Seu nome:");
-            myName = GUILayout.TextField(myName, 20);
-            GUILayout.Space(10);
-
-            GUILayout.Label("1) Para jogar com amigos, UM de voces cria a sala:", small);
-            if (GUILayout.Button("CRIAR SALA", bigButton)) StartHost();
-            GUILayout.Label("Voce escolhe as fases. Os outros entram na sua sala.", small);
+            GUILayout.Label("COOP", menuTitle);
             GUILayout.Space(12);
-
-            GUILayout.Label("2) Os outros entram com o IP que aparece na sala de quem criou:", small);
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("IP:", GUILayout.Width(24));
-            uiIp = GUILayout.TextField(uiIp);
-            GUILayout.EndHorizontal();
-            if (GUILayout.Button("ENTRAR NA SALA", bigButton)) StartClient();
-            GUILayout.Space(8);
-
-            GUILayout.BeginHorizontal();
-            GUILayout.Label("Porta (avancado):", small, GUILayout.Width(120));
-            uiPort = GUILayout.TextField(uiPort, GUILayout.Width(70));
-            GUILayout.EndHorizontal();
-            if (GUILayout.Button(showHelp ? "Fechar ajuda" : "Precisa estar na mesma rede?")) showHelp = !showHelp;
-            if (showHelp) HelpText();
-            GUILayout.Space(8);
+            GUILayout.Label("NOME", menuLabel);
+            myName = GUILayout.TextField(myName, 20, menuField, GUILayout.Height(30));
+            GUILayout.Space(14);
+            joinTab = GUILayout.Toolbar(joinTab ? 1 : 0, startTabs, menuTab, GUILayout.Height(34)) == 1;
+            if (joinTab)
+            {
+                GUILayout.Label("IP DO ANFITRIÃO", menuLabel);
+                uiIp = GUILayout.TextField(uiIp, menuField, GUILayout.Height(30));
+            }
+            else GUILayout.Label("Escolhe a fase e convida os teus amigos.", small);
+            GUILayout.Space(10);
+            if (GUILayout.Button(showHelp ? "Recolher porta e ajuda" : "Porta e ajuda  ›")) showHelp = !showHelp;
+            if (showHelp)
+            {
+                GUILayout.Label("PORTA", menuLabel);
+                uiPort = GUILayout.TextField(uiPort, 5);
+                HelpText();
+            }
             GfxRow();
             GUILayout.FlexibleSpace();
-            if (GUILayout.Button("Fechar")) showPanel = false;
+            GUILayout.BeginHorizontal();
+            if (GUILayout.Button("VOLTAR", menuButton)) showPanel = false;
+            if (GUILayout.Button(joinTab ? "ENTRAR" : "CRIAR SALA", menuButton))
+            {
+                if (joinTab) StartClient(); else StartHost();
+                menuScroll = Vector2.zero;
+            }
+            GUILayout.EndHorizontal();
         }
 
         void HelpText()
@@ -132,8 +153,8 @@ namespace ClusterTruckCoop
             bool waiting = !Connected;
             var host = Find(0);
             string hostName = mode == Mode.Host ? MyName : host != null ? host.Name : "...";
-            int count = remotes.FindAll(r => r.Fresh).Count + 1;
-            GUILayout.Label("Sala de " + hostName + "   (" + (waiting && mode == Mode.Client ? "?" : count.ToString()) + "/" + MaxPlayers + ")", colored);
+            int count = lobbyCount;
+            GUILayout.Label(waiting && mode == Mode.Client ? "A LIGAR" : "SALA DE " + hostName.ToUpperInvariant(), menuTitle);
 
             if (mode == Mode.Client && waiting)
             {
@@ -145,7 +166,17 @@ namespace ClusterTruckCoop
                 return;
             }
 
-            DrawPlayerList(false);
+            GUILayout.Label("JOGADORES   " + count + " / " + MaxPlayers, menuLabel);
+            for (int i = 0; i < count; i += 2)
+            {
+                GUILayout.BeginHorizontal();
+                for (int j = i; j < Mathf.Min(i + 2, count); j++)
+                {
+                    var member = lobbyPlayers[j];
+                    GUILayout.Label(member.Name + (member.id == 0 ? " · Anfitrião" : ""), GUILayout.Width((ShopWidth - 60f) / 2f));
+                }
+                GUILayout.EndHorizontal();
+            }
             GfxRow();
             GUILayout.Space(8);
 
@@ -156,14 +187,14 @@ namespace ClusterTruckCoop
                 foreach (var ip in myIps)
                 {
                     GUILayout.BeginHorizontal();
-                    GUILayout.Label(ip.Key + ":", small, GUILayout.Width(150));
-                    GUILayout.Label(ip.Value, colored, GUILayout.Width(130));
+                    GUILayout.BeginVertical();
+                    GUILayout.Label(ip.Key, small);
+                    GUILayout.Label(ip.Value, menuLabel);
+                    GUILayout.EndVertical();
                     if (GUILayout.Button("Copiar", GUILayout.Width(60))) GUIUtility.systemCopyBuffer = ip.Value;
                     GUILayout.EndHorizontal();
                 }
                 if (myIps.Count == 0) GUILayout.Label("(nenhum IP encontrado)", small);
-                GUILayout.Label("Se o Windows pedir permissao do firewall: clique Permitir. Sem admin pode cancelar e tentar " +
-                    "mesmo assim (na rede local costuma funcionar); se ninguem conseguir entrar, outro jogador cria a sala.", small);
                 if (GUILayout.Button(showHelp ? "Fechar ajuda" : "Precisa estar na mesma rede?")) showHelp = !showHelp;
                 if (showHelp) HelpText();
                 GUILayout.Space(8);
@@ -180,11 +211,12 @@ namespace ClusterTruckCoop
                 GUILayout.Label(pickLevel.ToString(), colored, GUILayout.Width(24));
                 if (GUILayout.Button(">", GUILayout.Width(28))) pickLevel = Mathf.Min(10, pickLevel + 1);
                 GUILayout.EndHorizontal();
-                if (GUILayout.Button("COMECAR FASE " + pickWorld + "-" + pickLevel + " PARA TODOS", bigButton))
-                    StartForAll((pickWorld - 1) * 10 + pickLevel);
-                GUILayout.Label("(Ou use o menu normal do jogo: todos entram na fase que voce escolher.)", small);
                 GUILayout.FlexibleSpace();
-                if (GUILayout.Button("Fechar sala")) Stop();
+                GUILayout.BeginHorizontal();
+                if (GUILayout.Button("FECHAR SALA", menuButton)) Stop();
+                if (GUILayout.Button("COMEÇAR " + pickWorld + "-" + pickLevel, menuButton))
+                    StartForAll((pickWorld - 1) * 10 + pickLevel);
+                GUILayout.EndHorizontal();
             }
             else
             {

@@ -187,6 +187,9 @@ namespace ClusterTruckCoop
         public static string DisplayName(int id, string n) => string.IsNullOrEmpty(n) || n == "Jogador" ? "Jogador " + (id + 1) : n;
         string MyName => DisplayName(myId, myName);
 
+        Mode startupRoom;
+        bool menuReady;
+
         void Awake()
         {
             I = this;
@@ -234,10 +237,27 @@ namespace ClusterTruckCoop
             }
             for (int i = 0; i < args.Length; i++)
             {
-                if (args[i] == "-coop-host") StartHost();
-                if (args[i] == "-coop-join" && i + 1 < args.Length) { uiIp = args[i + 1]; StartClient(); }
+                if (args[i] == "-coop-host") startupRoom = Mode.Host;
+                if (args[i] == "-coop-join" && i + 1 < args.Length) { uiIp = args[i + 1]; startupRoom = Mode.Client; }
             }
             Log("ClusterTruck Coop carregado (ate " + MaxPlayers + " jogadores). F8 abre o painel.");
+        }
+
+        System.Collections.IEnumerator Start()
+        {
+            // Loader runs inside Manager.Awake. The intro still owns the canvas until Done().
+            yield return null;
+            var opening = UnityEngine.Object.FindObjectOfType<IntroHandler>();
+            if (opening != null && opening.intro != null && opening.intro.activeInHierarchy)
+            {
+                Qa("EVENT aguardando o fim da abertura");
+                while (opening != null && opening.intro != null && opening.intro.activeInHierarchy)
+                    yield return null;
+            }
+            menuReady = true;
+            Qa("EVENT menu pronto");
+            if (startupRoom == Mode.Host) StartHost();
+            else if (startupRoom == Mode.Client) StartClient();
         }
 
         static void Log(string msg) { Debug.Log("[ClusterTruckCoop] " + msg); }
@@ -985,12 +1005,15 @@ namespace ClusterTruckCoop
         }
 
         // Shop: stand still at a spot in front of the menu camera.
-        public void Preview(Remote r, Vector3 pos, Quaternion rot)
+        public void Preview(Remote r, Vector3 pos, Quaternion rot, bool still = false)
         {
-            foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = CoopPlugin.PreviewLayer; // only the shop camera and light see it
             go.transform.position = rb.position = pos;
             go.transform.rotation = rb.rotation = rot;
-            Update(r, true, false, null);
+            bool dress = go.layer != CoopPlugin.PreviewLayer || (anim != null && (applied == null || !Same(applied, r.look)));
+            if (!go.activeSelf) go.SetActive(true);
+            if (dress || !still) Update(r, true, false, null);
+            if (dress)
+                foreach (var t in go.GetComponentsInChildren<Transform>(true)) t.gameObject.layer = CoopPlugin.PreviewLayer;
         }
 
         public bool Solid => solid;

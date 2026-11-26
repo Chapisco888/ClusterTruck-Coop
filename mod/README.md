@@ -24,7 +24,7 @@ Cada jogador precisa de uma instalação própria do ClusterTruck.
 - **Ranking:** quando todos chegam, aparece o ranking da fase (mais rápido primeiro, com os pontos do jogo) e o total
   da sessão (vitórias, pontos, tempo). Cada fase também é salva em `ClusterTruckCoop_ranking.csv` na pasta do jogo.
 - O host usa o botão de próxima fase da tela de vitória; os clientes vão junto. O host não consegue avançar antes de todos chegarem.
-- Seu nome aparece para os outros (definido na janela MULTIPLAYER).
+- Seu nome aparece para os outros (definido na janela COOP).
 - Se alguém travar ou ficar AFK, o host pausa (ESC) e usa **Reiniciar fase (todos)** ou **Próxima fase mesmo assim**.
 
 ## Instalar (cada jogador)
@@ -42,12 +42,12 @@ Desinstalar: `install.bat -Uninstall` (restaura o backup e remove as DLLs do mod
 ## Jogar
 
 1. Abra o jogo e clique em **Play!** na janela de configuração (marque *Windowed* se quiser alternar janelas).
-2. No menu, clique em **MULTIPLAYER** (canto superior direito) ou aperte **F8**, e escreva seu nome.
+2. No menu, clique em **COOP** (ao lado de **PLAY**) ou aperte **F8**, e escreva seu nome.
 3. Uma pessoa clica em **CRIAR SALA** (vira o host). A sala mostra os IPs dela, já identificados
    (Rede local, Radmin VPN, Tailscale…), com botão **Copiar**.
-4. Os outros digitam esse IP e clicam em **ENTRAR NA SALA**.
-5. Na sala só o host escolhe a fase (Mundo/Fase) e clica em **COMEÇAR … PARA TODOS**; todos entram juntos.
-   O host também pode usar o menu normal do jogo. Os outros não conseguem escolher fase.
+4. Os outros escolhem **ENTRAR NUMA SALA**, digitam esse IP e clicam em **ENTRAR**.
+5. Na sala só o host escolhe a fase (Mundo/Fase) e clica em **COMEÇAR**; todos entram juntos.
+   Cada jogador vê o seu personagem à frente e os colegas com os visuais da loja.
 6. Na fase, **F8** mostra o placar. Com o jogo pausado (ESC, pausa para todos) aparecem as opções da sala:
    host: **Reiniciar fase (todos)**, **Próxima fase mesmo assim**, **Voltar todos para a sala**; outros: **Sair da sala**.
    Quando o host volta para a sala, todo mundo volta junto.

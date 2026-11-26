@@ -12,6 +12,7 @@ namespace ClusterTruckCoop
         static int owned;            // bit per Look.Items index
         byte[] tryLook;              // what the preview wears: myLook plus items being tried on before buying
         bool shopOpen, shopInjected;
+        GameObject injectedMenu;
         int shopTab;
         float nextInject;
         Puppet shopPuppet;
@@ -21,7 +22,7 @@ namespace ClusterTruckCoop
         static readonly Vector3 Stage = new Vector3(0f, -3000f, 0f);
         static float ShopWidth => Mathf.Min(440f, Screen.width * 0.52f);
         readonly Remote shopMe = new Remote { name = "" };
-        Font gameFont;
+        Font gameFont, playFont;
         GUIStyle shopTitle, shopText, swatch;
         static readonly string[] tabs = { "CORES", "ROUPAS", "ACESSORIOS" };
         static readonly string[] partNames = { "Pele", "Olhos", "Cabelo", "Camisa", "Calca" };
@@ -46,33 +47,48 @@ namespace ClusterTruckCoop
         {
             var man = Manager.Instance();
             if (man == null || man.mainMenu == null) return;
-            shopInjected = true;
             var main = man.mainMenu.transform;
             var ab = main.Find("abilities") as RectTransform;
-            if (ab == null || main.Find("coopShop") != null) return;
+            var play = main.Find("play") as RectTransform;
+            if (ab == null || play == null) return;
+            shopInjected = true;
+            injectedMenu = man.mainMenu.gameObject;
+            if (main.Find("coopShop") != null) return;
+            var coop = CloneMenuButton(play, "coopEntry", "COOP", OpenCoop);
+            playFont = play.GetComponentInChildren<Text>().font;
+            float offset = (play.rect.width + 54f) * 0.5f;
+            coop.anchoredPosition = play.anchoredPosition + Vector2.right * offset;
+            play.anchoredPosition -= Vector2.right * offset;
             float y0 = ab.anchoredPosition.y;
             foreach (Transform ch in main)
             {
                 var c = ch as RectTransform;
                 if (c != null && c != ab && c.anchoredPosition.y < y0 && Mathf.Abs(c.anchoredPosition.x) < 1f) c.anchoredPosition += new Vector2(0f, -60f);
             }
-            var go = (GameObject)Instantiate(ab.gameObject);
-            go.name = "coopShop";
-            var rt = (RectTransform)go.transform;
-            rt.SetParent(main, false);
+            var rt = CloneMenuButton(ab, "coopShop", "LOJA", OpenShop);
             rt.SetSiblingIndex(ab.GetSiblingIndex() + 1);
             rt.anchoredPosition = new Vector2(ab.anchoredPosition.x, y0 - 60f);
             rt.sizeDelta = new Vector2(170f, ab.sizeDelta.y);
-            var text = go.GetComponentInChildren<Text>();
-            text.text = "LOJA";
-            gameFont = text.font;
-            foreach (var et in go.GetComponents<EventTrigger>()) // keep the hover/click sounds, drop "open the abilities menu"
+            gameFont = rt.GetComponentInChildren<Text>().font;
+        }
+
+        RectTransform CloneMenuButton(RectTransform source, string objectName, string label, UnityEngine.Events.UnityAction click)
+        {
+            var go = (GameObject)Instantiate(source.gameObject);
+            go.name = objectName;
+            var rt = (RectTransform)go.transform;
+            rt.SetParent(source.parent, false);
+            go.GetComponentInChildren<Text>().text = label;
+            foreach (var et in go.GetComponents<EventTrigger>())
                 foreach (var e in et.triggers)
                     if (e.callback.GetPersistentEventCount() > 0 && e.callback.GetPersistentMethodName(0) == "ChangeMenu") { Destroy(et); break; }
-            var b = go.GetComponent<Button>();
-            b.onClick = new Button.ButtonClickedEvent();
-            b.onClick.AddListener(OpenShop);
+            var button = go.GetComponent<Button>();
+            button.onClick = new Button.ButtonClickedEvent();
+            button.onClick.AddListener(click);
+            return rt;
         }
+
+        void OpenCoop() { showPanel = true; }
 
         void OpenShop()
         {
@@ -94,11 +110,22 @@ namespace ClusterTruckCoop
 
         void ShopTick(bool inLevel)
         {
-            if (!shopInjected && Time.unscaledTime >= nextInject) { nextInject = Time.unscaledTime + 1f; InjectShopButton(); }
+            if (!menuReady) return;
+            if ((!shopInjected || injectedMenu == null) && Time.unscaledTime >= nextInject) { nextInject = Time.unscaledTime + 1f; InjectShopButton(); }
+            LobbyTick(!shopOpen && !inLevel && (showPanel || mode != Mode.Off), inLevel);
             if (!shopOpen) return;
             if (inLevel) { CloseShop(false); return; } // the host started a level while we were shopping
             // Own camera drawn over the left of the menu: the menu camera's depth-of-field blurred the character.
             // The stage is far below the map so nothing else is in view.
+            PreparePreviewCamera();
+            if (shopPuppet == null) shopPuppet = new Puppet(Mathf.Max(myId, 0));
+            shopMe.id = Mathf.Max(myId, 0);
+            shopMe.look = tryLook;
+            shopPuppet.Preview(shopMe, Stage, Quaternion.Euler(0f, shopYawArg > -999f ? shopYawArg : Mathf.Sin(Time.unscaledTime * 0.7f) * 60f, 0f));
+        }
+
+        void PreparePreviewCamera()
+        {
             if (shopCam == null)
             {
                 shopCam = new GameObject("CoopShopCam").AddComponent<Camera>();
@@ -119,10 +146,6 @@ namespace ClusterTruckCoop
             }
             shopCam.gameObject.SetActive(true);
             shopCam.rect = new Rect(0f, 0f, 1f - (ShopWidth + 12f) / Screen.width, 1f);
-            if (shopPuppet == null) shopPuppet = new Puppet(Mathf.Max(myId, 0));
-            shopMe.id = Mathf.Max(myId, 0);
-            shopMe.look = tryLook;
-            shopPuppet.Preview(shopMe, Stage, Quaternion.Euler(0f, shopYawArg > -999f ? shopYawArg : Mathf.Sin(Time.unscaledTime * 0.7f) * 60f, 0f));
         }
 
         void DrawShop()
